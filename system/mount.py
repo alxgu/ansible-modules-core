@@ -103,6 +103,12 @@ options:
     required: false
     default: yes
     choices: ["yes", "no"]
+  fail_when_not_empty:
+     version_added: 2.3
+     description:
+       - Check if mount point is not empty. If set C(fail_when_not_empty) to true, it will run a check and abort if mount point is not empty to prevent over mounting.
+     required: false
+     default: false
 '''
 
 EXAMPLES = '''
@@ -402,6 +408,25 @@ def is_bind_mounted(module, linux_mounts, dest, src=None, fstype=None):
     return is_mounted
 
 
+def not_empty_check(module, dest):
+    """Check if destination is empty, to prevent mounting over
+    
+    :arg module: The AnsibleModule (used for helper functions)
+    :arg dest: The directory which should be checked for emptiness.
+    :returns: False if dest is empty otherwise aborts with fail_json.
+    """
+
+    content = os.listdir(dest)
+
+    if 'lost+found' in content:
+        content.remove('lost+found')
+
+    if content:
+        module.fail_json(msg="Destination %s is not empty. Abort here to prevent over mounting." % dest)
+
+    return False
+
+
 def get_linux_mounts(module):
     """Gather mount information"""
 
@@ -525,6 +550,7 @@ def main():
         argument_spec=dict(
             boot=dict(default='yes', choices=['yes', 'no']),
             dump=dict(),
+            fail_when_not_empty = dict(type='bool', default=False),
             fstab=dict(default='/etc/fstab'),
             fstype=dict(),
             name=dict(required=True, type='path'),
@@ -650,6 +676,9 @@ def main():
         elif 'bind' in args.get('opts', []):
             changed = True
 
+            if module.boolean(module.params['fail_when_not_empty']):
+                not_empty_check(module, args['name'])
+
             if is_bind_mounted(
                     module, linux_mounts, name, args['src'], args['fstype']):
                 changed = False
@@ -658,6 +687,9 @@ def main():
                 res, msg = mount(module, args)
         else:
             changed = True
+
+            if module.boolean(module.params['fail_when_not_empty']):
+                not_empty_check(module, args['name'])
 
             if not module.check_mode:
                 res, msg = mount(module, args)
